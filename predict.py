@@ -1,34 +1,57 @@
 import pandas as pd
 import joblib
 from keras.models import load_model
+from pipe import NLPPreprocessor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+from keras.models import Sequential
+from keras.layers import LSTM, Dense, Embedding, GlobalAveragePooling1D
+from keras.utils import to_categorical, pad_sequences
+from ast import literal_eval
 from pipe import *
-from model import *
-# Load the trained model, preprocessing pipeline, and embedding generator
-model_file = 'model.pkl' 
-pipeline_file = 'pre_pipeline.pkl'  
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import joblib
+
+    # Load the trained model, preprocessing pipeline, and embedding generator
+model_file = 'model.h5' 
+preprocessor = joblib.load('pre_pipeline.pkl')
+
 
 # Load the model
-model = joblib.load(model_file)
+model = load_model(model_file)
 
-# Load the preprocessing pipeline
-preprocessor_pipeline = joblib.load(pipeline_file)
+# extra axis for sentiment relations
+def interpret_sentiment(prob):
+    if prob <= 0.20:
+        return "Strongly Negative"
+    elif prob <= 0.40:
+        return "Negative"
+    elif prob <= 0.49:
+        return "Neutral / Slightly Negative"
+    elif prob == 0.50:
+        return "Neutral / Ambiguous"
+    elif prob <= 0.60:
+        return "Neutral / Slightly Positive"
+    elif prob <= 0.80:
+        return "Positive"
+    else:
+        return "Strongly Positive"
+    
+def predict_sentiment(review:str):
+    # Preprocess the review using the pipeline
+    a = {"a": [review]}
+    processed_review = preprocessor.clean(pd.DataFrame(a)['a'])
+    # Generate embeddings using the embedding generator
+    embeddings = preprocessor.single_review_embedding(processed_review)
+    
+    # Make the prediction
+    prediction = model.predict(embeddings)
+    predicted_prob = prediction[0] 
+    # Interpret the prediction (adjust based on your labeling)
+    sentiment = interpret_sentiment(predicted_prob)
+    
+    print(f"The predicted sentiment is: {sentiment}")
 
-
-
-# Get user input for the review
-review = input("Enter the review to predict sentiment: ")
-
-# Preprocess the review using the pipeline
-processed_review = preprocessor_pipeline.transform([review])
-
-# Generate embeddings using the embedding generator
-embeddings = NLPPreprocessor().single_review_embedding(processed_review)
-
-# Make the prediction
-prediction = model.predict(embeddings)
-predicted_class = prediction.argmax(axis=-1)  # Get the index of the class with the highest probability
-
-# Interpret the prediction (adjust based on your labeling)
-sentiment = "Positive" if predicted_class[0] == 1 else "Negative"
-
-print(f"The predicted sentiment is: {sentiment}")
+predict_sentiment("Harry potter is magical movie, just amazing, i liked whole plot.")
