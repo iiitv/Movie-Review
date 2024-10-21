@@ -55,3 +55,7 @@ def predict_sentiment(review:str):
     print(f"The predicted sentiment is: {sentiment}")
 
 predict_sentiment("Harry potter is magical movie, just amazing, i liked whole plot.")
+
+# 1/1 [==============================] - ETA: 0s
+# 1/1 [==============================] - 1s 910ms/step
+# The predicted sentiment is: Strongly Positive
