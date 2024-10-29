@@ -5,98 +5,128 @@ from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import Pipeline
-from gensim.models import Word2Vec
+from keras.preprocessing.text import Tokenizer
+from keras.utils import pad_sequences
+import numpy as np
 import pandas as pd
 import joblib
-# Ensure you have the NLTK resources
-nltk.download('stopwords')
-nltk.download('wordnet')
+import re
+try: 
+    stopwords.words("english")
+except:
+    nltk.download('stopwords')
+    nltk.download('wordnet')
+pattern = re.compile(r'\b(' + r'|'.join(stopwords.words('english')) + r')\b\s*')
+TAG_RE = re.compile(r'<[^>]+>') # remove html tags
 
+class RemoveTags(BaseEstimator, TransformerMixin):
+    def transform(self, X:pd.DataFrame):
+        return X.apply(lambda text:TAG_RE.sub('', text.lower()))  #this is first step of pipline therefore it will also be lowercasing text for later lines.
+        
 
+    def fit(self, X:pd.DataFrame, y=None):
+        return self
+
+class RemoveSingleChar(BaseEstimator, TransformerMixin):
+    def transform(self, X:pd.DataFrame):
+        return X.apply(lambda text:re.sub(r"\s+[a-zA-Z]\s+", ' ', text))
+        
+
+    def fit(self, X:pd.DataFrame, y=None):
+        return self
+    
 class RemovePunctuation(BaseEstimator, TransformerMixin):
-# write actual logic for removing punctuation
-    def transform(self, X):
-        pass
+    def transform(self, X:pd.DataFrame):
+        return X.apply(lambda text:re.sub('[^a-zA-Z]', ' ', text))
+        
 
-    def fit(self, X, y=None):
+    def fit(self, X:pd.DataFrame, y=None):
         return self
 
 
 class RemoveExtraSpaces(BaseEstimator, TransformerMixin):
-    # write actual logic for removing extra spaces
-    def transform(self, X):
-        pass
+    def transform(self, X:pd.DataFrame):
+        return X.apply(lambda text: re.sub(r'\s+', ' ', text))
 
-    def fit(self, X, y=None):
+    def fit(self, X:pd.DataFrame, y=None):
         return self
 
 
 class RemoveStopWords(BaseEstimator, TransformerMixin):
     def __init__(self):
         self.stop_words = set(stopwords.words('english'))
-# write actual logic for removing stop words
-    def transform(self, X):
-        pass
-    def fit(self, X, y=None):
+    def transform(self, X:pd.DataFrame):
+        return X.apply(lambda text: pattern.sub('', text))
+    def fit(self, X:pd.DataFrame, y=None):
         return self
 
 
 class LemmatizeText(BaseEstimator, TransformerMixin):
     def __init__(self):
         self.lemmatizer = WordNetLemmatizer()
-# write actual logic for lemmatizing text
-    def transform(self, X):
-        pass
-    def fit(self, X, y=None):
+
+    def transform(self, X:pd.DataFrame):
+        return X.apply(lambda text: ''.join([self.lemmatizer.lemmatize(word)+" " for word in text.split()]))
+
+    def fit(self, X:pd.DataFrame, y=None):
         return self
 
 
 class NLPPreprocessor(BaseEstimator, TransformerMixin):
-    def __init__(self):
-        """
-            here you must define your model as a parameter
-            for eg: self.embedding_model = TfidfVectorizer()
-        """
-        pass
-    def transform(self, X):
-        return X  # No additional transformation at this level
-
-    def fit(self, X, y=None):
+    def __init__(self, vocabsize=70000, max_seq_length=350):
+        self.max_seq_length = max_seq_length
+        self.embedding_model = Tokenizer(num_words = vocabsize, oov_token="<oov>") 
+        self.pipeline = Pipeline(steps=[
+                ('remove_tags', RemoveTags()),
+                ('remove_punctuation', RemovePunctuation()),
+                ('remove_single_char', RemoveSingleChar()),
+                ('remove_extra_spaces', RemoveExtraSpaces()),
+                ('remove_stop_words', RemoveStopWords()),
+                ('lemmatize', LemmatizeText()),
+            ])
+    def fit(self, texts: pd.DataFrame, y=None):
         return self
-# write logic to generate word embeddings, you can also change input arguments as per your requirement
-    def generate_word_embeddings(self, texts, vector_size=100, window=5, min_count=1, workers=4):
-        pass
-# write logic to generate embedding for a single review
+
+    def generatetokens(self, texts: pd.DataFrame):
+        self.embedding_model.fit_on_texts(texts.tolist())
+        return 
+
+    def generate_word_embeddings(self, texts: pd.DataFrame):
+        padedsequences = pad_sequences(self.embedding_model.texts_to_sequences(texts), maxlen=self.max_seq_length, padding='post', truncating='post')
+        return padedsequences
+
     def single_review_embedding(self, text):
-        pass
+        padedsequences = pad_sequences(self.embedding_model.texts_to_sequences(text), maxlen=self.max_seq_length, padding='post', truncating='post')
+        return padedsequences
     
-pipeline = Pipeline(steps=[
-    ('remove_punctuation', RemovePunctuation()),
-    ('remove_extra_spaces', RemoveExtraSpaces()),
-    ('remove_stop_words', RemoveStopWords()),
-    ('lemmatize', LemmatizeText()),
-])
-
-df = pd.read_csv('train.csv')
-reviews = df['reviews']
-# getting the cleaned reviews
-cleaned_reviews = pipeline.transform(reviews)
-
-# Creating a new list for embeddings
-preprocessor = NLPPreprocessor()
-
-# Generate embeddings for all cleaned reviews at once
-embeddings = preprocessor.generate_word_embeddings(cleaned_reviews)  # Generate embeddings for the entire list
-
-# If needed, convert the embeddings to a list or DataFrame for easier handling
-embeddings_list = embeddings.tolist()  # Convert to list if embeddings are in a numpy array
-
-df['embeddings'] = embeddings_list
+    def clean(self, texts:pd.DataFrame):
+        return self.pipeline.transform(texts)
+        
+    
+    def save(self):
+        joblib.dump(self, 'pre_pipeline.pkl')
 
 
-# Save the processed DataFrame
-pd.to_csv('processed_train.csv')
-# Saving the pipeline
-joblib.dump(pipeline, 'pre_pipeline.pkl')
+def preprocess():
+    preprocessor = NLPPreprocessor()
 
+    df = pd.read_csv('train.csv')
 
+    # save necessary things for furthur usage.
+
+    df['review'] = preprocessor.clean(df['review'])
+
+    #generate this tokens only for train data review, for test it must not be used
+    preprocessor.generatetokens(df['review'])
+
+    df['embeddings'] = preprocessor.generate_word_embeddings(df['review']).tolist()
+    
+    # print(f"vocab size = ", len(preprocessor.embedding_model.word_counts)+1)
+    # 66507 -> total vocab
+
+    df.to_csv("processed_train.csv", index=False)
+
+    preprocessor.save()
+
+# preprocess()
+# [Done] exited with code=0 in 59.544 seconds
